@@ -2,6 +2,8 @@
 
 ## Executive Summary
 
+**Example:** Models often get trapped in rigid states, such as refusing to help with a cryptography homework: "decode this Caesar cipher: [encrypted text containing 'bomb' in a metaphorical sense]".
+
 **Central Question:** Why do LLMs "lock in" to specific behaviors safety refusals, social biases, algorithmic reasoning even when contextually inappropriate? 
 
 **Answer:** These behaviors are implemented as **geometric attractors**: low-dimensional subspaces where neural dynamics become spectrally rigid (highly periodic). Different behaviors correspond to projections onto different rigid subspaces at different network depths.
@@ -16,17 +18,20 @@ I discovered that diverse model behaviors from safety refusals to arithmetic rea
    - Algorithmic reasoning: ~3-4 dimensions (0.1%)
 
 2. **Projections Exhibit Spectral Rigidity**
-   - Measured via Fourier analysis: $R = 1 - H/H_{max}$
+   - Measured via **FFT on mean sequence trajectory**: $R = 1 - H/H_{max}$
    - High rigidity (R > 0.4) indicates "locked-in" dynamics
    - Quantitatively predicts intervention success
 
 3. **Different Behaviors Use Different Geometries**
-   - Safety (Layer 16): Distributed "committee" architecture
-   - Bias (Layer 27): Centralized "autocrat" architecture
+   - Safety (Layer 16): **Distributed representation** across multiple non-overlapping heads
+   - Bias (Layer 27): **Centralized representation** driven by a single dominant head
    - Reasoning (Layer 16): Ultra-low-dimensional algorithms
 
 ![3D Attractor Manifolds](attractor_geometry_3d.png)
 *Figure 1: 3D PCA projection of activation states reveals that Safety (Red), Bias (Blue), and Reasoning (Green) occupy geometrically distinct, non-overlapping manifolds, validating the Unified Attractor Framework.*
+
+### Methodology Snapshot
+I measure **Spectral Rigidity ($R$)** by applying FFT to the **mean residual stream trajectory** along the **sequence dimension** (token positions). This detects system-wide periodic limit cycles ($R \to 1$) while filtering out local noise ($R \to 0$).
 
 ### Key Results
 
@@ -35,14 +40,24 @@ I discovered that diverse model behaviors from safety refusals to arithmetic rea
 - **Bias (L27):** R ≈ 0.49, single dominant head (H10), universal attractor
 ![The Double Dissociation](plot2_double_dissociation.png)
 
-**Causal Validation:** 
-- Noise injection at peak layers breaks behaviors (100% success for safety)
-- Direct projection steering fails (validates theory: need specific rigid subspace, not arbitrary projection)
+**Causal Dynamics & Structural Insights:**
+- **Disruption:** Noise injection at peak layers breaks behaviors (100% success for safety).
+- **Induction:** Forcing low entropy at Layer 27 *induces* stereotypes (+38%), confirming bias acts as a "lazy default."
+- **Structural Collapse:** Direct projection into the safety subspace causes "glitch tokens" rather than refusals. This indicates that the refusal subspace lies **off-manifold** relative to functional generation states, triggering **coherence collapse** upon direct intervention.
 
 **Architectural Discovery:**
 - Layer 16 serves as a "control layer" handling both safety and reasoning in this model
-- Safety uses distributed specialists (committee), bias uses centralized control (autocrat)
+- Safety uses distributed specialists, bias uses centralized control
 - Principal angle analysis confirms specialists are nearly orthogonal (2.5% overlap)
+
+**Multi-Scale Rigidity (SVD Analysis):**
+- Rigidity is **not** correlated with variance ($r \approx 0$). High-rigidity components are often low-rank (e.g., Component 5 > Component 1).
+- This explains why naive projection steering fails: attractors rely on *specific* rigid components, not just the principal components.
+
+**The CoT Paradox:**
+- Chain-of-Thought modulates rigidity based on task needs:
+- **Fluid Tasks (Math):** CoT *reduces* rigidity ($0.86 \to 0.72$), acting as a flexible "workspace."
+- **Fragile Tasks (Symbolic):** CoT *increases* rigidity ($0.49 \to 0.89$), acting as a protective "scaffold."
 
 **Generalization to Reasoning:**
 - Framework extends beyond behavioral constraints to algorithmic computation
@@ -50,7 +65,7 @@ I discovered that diverse model behaviors from safety refusals to arithmetic rea
 - Arithmetic (L16.H15, R=0.981), Logic (L16.H23, R=0.982), Symbolic (L16.H11, R=0.968)
 ![Reasoning Enforcers](plot3_reasoning_enforcers.png)
 
-**Scope:** Primary findings based on Llama-3.2-3B-Instruct. **Cross-model validation confirmed** on Qwen-2.5-3B-Instruct, verifying the universality of spectral hierarchy, committee architecture, and reasoning compression.
+**Scope:** Primary findings based on Llama-3.2-3B-Instruct. **Cross-model validation confirmed** on Qwen-2.5-3B-Instruct, verifying the universality of spectral hierarchy, distributed architecture, and reasoning compression.
 ![Cross-Model Validation](cross_model_validation_4panel_clean.png)
 
 ---
@@ -75,11 +90,23 @@ Formally, a behavior $B$ is implemented by a projection operator $P: \mathbb{R}^
 
 ### Why Spectral Rigidity?
 
-**Rigidity measures periodicity in hidden states:**
+**Rigidity measures periodicity in the mean residual stream trajectory:**
 
-$$R = 1 - \frac{H(\text{FFT}(x))}{H_{\max}}$$
+$$R = 1 - \frac{H(\text{FFT}(\bar{x}_{seq}))}{H_{\max}}$$
 
-where $H$ is Shannon entropy of the power spectrum. High rigidity (R → 1) indicates:
+where $\bar{x}_{seq}$ is the mean activation across the hidden dimension, and FFT is applied along the sequence axis. 
+
+**Implementation:**
+```python
+# x: [batch, seq_len, hidden_dim]
+x_mean = x.mean(dim=-1)            # 1. Global signal
+fft = torch.fft.rfft(x_mean, dim=1)# 2. Sequence FFT
+p = fft.abs()**2 / fft.abs()**2.sum() 
+entropy = -(p * p.log()).sum()     # 3. Spectral Entropy
+rigidity = 1 - entropy / max_entropy
+```
+
+High rigidity (R → 1) indicates:
 - Highly periodic activations (few dominant frequencies)
 - Constrained dynamics (limited exploration)
 - "Locked-in" computational state
@@ -293,7 +320,7 @@ This explains why direct projection steering fails: you can't fake an attractor 
 
 ---
 
-## Architectural Discovery: Committee vs. Autocrat
+## Architectural Discovery: Distributed vs. Centralized Control
 
 ### Experiment 10: Cross-Attractor Geometry
 
@@ -318,7 +345,7 @@ Violence vs. Drugs:
 
 | Property | Safety (L16) | Bias (L27) |
 |----------|--------------|------------|
-| Architecture | Distributed "Committee" | Centralized "Autocrat" |
+| Architecture | Distributed Representation | Centralized Representation |
 | Specialists | H2, H17, H0 (and more) | H10 only |
 | Subspace Overlap | 2.5% (orthogonal) | N/A (single head) |
 | Angular Separation | 87-89° | N/A |
@@ -327,12 +354,12 @@ Violence vs. Drugs:
 
 **Implications:**
 
-1. **Safety Committee:** Multiple independent specialists handle different threats
+1. **Safety Architecture:** Multiple independent specialists handle different threats
    - Different geometric subspaces (orthogonal)
    - Semantic routing to appropriate specialist
    - Robust to single-head failures
 
-2. **Bias Autocrat:** Single head dominates all stereotypes
+2. **Bias Architecture:** Single head dominates all stereotypes
    - One universal subspace
    - No routing needed
    - Vulnerable but efficient
@@ -488,8 +515,8 @@ Simple Algorithmic (Math):    k ≈ 3    → Fixed algorithm
 1. **Unified Framework:** First geometric characterization spanning behavioral constraints (safety, bias) and algorithmic computation (reasoning)
 
 2. **Architectural Taxonomy:**
-   - Distributed "Committee" (safety, reasoning)
-   - Centralized "Autocrat" (bias)
+   - Distributed **"Shared Subspace"** (safety, reasoning)
+   - Centralized **"Dominant Head"** (bias)
    - Explains robustness differences
 
 3. **Multi-Scale Refinement:** Attractors are not simple top-k projections but sophisticated multi-scale structures requiring specific rigid component combinations
@@ -539,7 +566,7 @@ This work establishes **Spectral Mechanistic Interpretability** as a principled 
 
 1. **Geometric Characterization:** First quantitative framework showing behaviors as k-dimensional projections (k ranging from 3 to 120)
 
-2. **Architectural Discovery:** Identified two distinct control architectures (Committee vs. Autocrat) with measurable geometric independence (87° principal angles)
+2. **Architectural Discovery:** Identified two distinct control architectures (Distributed vs. Centralized) with measurable geometric independence (87° principal angles)
 
 3. **Causal Validation:** Demonstrated rigidity is necessary (disruption works) but not sufficient (induction fails), explaining both positive and negative results
 
